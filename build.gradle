@@ -1,0 +1,151 @@
+apply plugin: 'war'
+
+group = 'com.tefuna.scheaggr'
+version = '1.0.0'
+description = 'scheaggr-api'
+
+// build properties
+def vAppName = 'irbm'
+def vContextPath = 'scheaggr/api/v1'
+def vConfExclude = ['app.properties', 'applog.properties', 'database.properties', 'logback.xml']
+def vConfInclude = ['applog.properties', 'logback.xml']
+
+dependencies {
+    compile group: 'org.springframework', name: 'spring-webmvc', version:'4.3.16.RELEASE'
+    compile(group: 'org.springframework', name: 'spring-context', version:'4.3.16.RELEASE') {
+        exclude(module: 'commons-logging')
+    }
+    compile group: 'org.springframework', name: 'spring-context-support', version:'4.3.16.RELEASE'
+    compile group: 'org.springframework.security', name: 'spring-security-core', version: '4.2.5.RELEASE'
+    compile group: 'org.springframework.security', name: 'spring-security-web', version: '4.2.5.RELEASE'
+    compile group: 'org.springframework.security', name: 'spring-security-config', version: '4.2.5.RELEASE'
+    compile group: 'cglib', name: 'cglib', version:'3.2.6'
+    compile group: 'org.aspectj', name: 'aspectjweaver', version:'1.8.13'
+    compile(group: 'com.github.isrsal', name: 'spring-mvc-logger', version:'0.2') {
+        exclude(module: 'slf4j-log4j12')
+    }
+    compile group: 'org.postgresql', name: 'postgresql', version: '42.2.1'
+    compile group: 'org.mybatis', name: 'mybatis', version: '3.4.5'
+    compile group: 'org.mybatis', name: 'mybatis-spring', version: '1.3.1'
+    compile group: 'org.springframework', name: 'spring-jdbc', version: '4.3.16.RELEASE'
+    compile(group: 'org.apache.commons', name: 'commons-dbcp2', version: '2.2.0') {
+        exclude(module: 'commons-logging')
+    }
+
+    compile project(':tn-common')
+    compile project(':scheaggr-code')
+    compile project(':scheaggr-api-client')
+
+    providedCompile group: 'javax.servlet', name: 'javax.servlet-api', version:'3.1.0'
+
+    testCompile group: 'org.springframework', name: 'spring-test', version:'4.3.16.RELEASE'
+    testCompile group: 'com.github.springtestdbunit', name:'spring-test-dbunit', version:'1.3.0'
+    testCompile group: 'org.dbunit', name: 'dbunit', version:'2.5.4'
+    testCompile group: 'org.hamcrest', name: 'hamcrest-all', version:'1.3'
+    testCompile group: 'com.jayway.jsonpath', name: 'json-path', version:'2.4.0'
+}
+
+// ========================================================
+// eclipse configuration
+eclipse {
+    wtp {
+        component {
+            contextPath = vContextPath
+        }
+        facet {
+            facet name: 'jst.java', version: javaVersion
+            file {
+                whenMerged  {
+                    wtpFacet -> facets.findAll {
+                        facet -> facet.name == 'jst.web'
+                    }
+                    *.version = "3.1"
+                }
+            }
+        }
+    }
+    // project {
+    //     // test/resources
+    //     linkedResource name: 'src/test/resources/app.properties', type: '1', location: 'PROJECT_LOC/src/main/resources/app.properties'
+    //     linkedResource name: 'src/test/resources/applog.properties', type: '1', location: 'PROJECT_LOC/src/main/resources/applog.properties'
+    //     linkedResource name: 'src/test/resources/database.properties', type: '1', location: 'PROJECT_LOC/src/main/resources/database.properties'
+    //     linkedResource name: 'src/test/resources/logback.xml', type: '1', location: 'PROJECT_LOC/src/main/resources/logback.xml'
+    //     linkedResource name: 'src/test/resources/applicationContext.xml', type: '1', location: 'PROJECT_LOC/src/main/webapp/WEB-INF/applicationContext.xml'
+    //     linkedResource name: 'src/test/resources/iroha-servlet.xml', type: '1', location: 'PROJECT_LOC/src/main/webapp/WEB-INF/conf/iroha-servlet.xml'
+    // }
+}
+
+// ========================================================
+// build configuration.
+clean {
+    doLast {
+        project.delete('target')
+    }
+}
+
+sourceSets {
+    main {
+        resources {
+             // exclude environment resources. default path: src/main/resources
+             exclude vConfExclude
+        }
+    }
+}
+
+war {
+    archiveName = "${vAppName}.war"
+}
+
+// copy war to zip dir.
+task copyArchive(type: Copy) {
+    from "${buildDir}/libs/${war.archiveName}"
+    into "target/${env}"
+}
+
+// copy np-settings with environment resources.
+task copyConfig(dependsOn: copyArchive, type: Copy) {
+    from ('src/main/resources') {
+        include vConfInclude
+    }
+    from "environment/${env}/resources"
+    into "target/${env}/np-settings/${vAppName}"
+}
+
+// copy static. (only for web page application)
+task copyStatic(dependsOn: copyConfig, type: Copy) {
+    from "environment/${env}/static"
+    into "target/${env}/static"
+}
+
+// zip all resources for deployment artifact.
+task archive(dependsOn: copyStatic, type: Zip) {
+    archiveName = "${vAppName}_${env}.${extension}"
+    from "target/${env}"
+    doLast {
+        copy { // after zipped, copy to target directory.
+            from archivePath
+            into "target"
+        }
+    }
+}
+
+// ========================================================
+// test by gradle configuration.
+test {
+    exclude "**/framework/**"
+    ignoreFailures = true
+    reports {
+        junitXml.enabled = true
+    }
+    doFirst() {
+        copy {
+            vConfExclude.each {
+                from "src/main/resources/${it}"
+            }
+            from "environment/${env}/resources"
+            from "src/main/webapp/WEB-INF/applicationContext.xml"
+            from "src/main/webapp/WEB-INF/conf/iroha-servlet.xml"
+            into "${buildDir}/resources/test"
+        }
+    }
+}
